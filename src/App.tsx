@@ -1,25 +1,86 @@
-import React from 'react';
-import logo from './logo.svg';
-import './App.css';
+import React, { useState, useEffect } from 'react';
+import { io, Socket } from 'socket.io-client';
+import {
+  User,
+  Message,
+  ServerToClientEvents,
+  ClientToServerEvents,
+} from './types/chat.interface';
+import { Header } from './components/header';
+import { LoginForm } from './components/login.form';
+import { MessageForm } from './components/message.form';
+import { Messages } from './components/messages';
+import { ChatLayout } from './layouts/chat.layout';
+import { LoginLayout } from './layouts/login.layout';
+
+const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io('http://localhost:3001');
 
 function App() {
+  const [isConnected, setIsConnected] = useState(socket.connected);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [user, setUser] = useState<User>();
+
+  useEffect(() => {
+    const currentUser = JSON.parse(sessionStorage.getItem('user') ?? '{}');
+    if (currentUser.userId) {
+      setUser(currentUser);
+    }
+
+    socket.on('connect', () => {
+      setIsConnected(true);
+    });
+
+    socket.on('disconnect', () => {
+      setIsConnected(false);
+    });
+
+    socket.on('chat', (e) => {
+      setMessages((messages) => [e, ...messages]);
+    });
+
+    return () => {
+      socket.off('connect');
+      socket.off('disconnect');
+      socket.off('chat');
+    };
+  }, []);
+
+  const login = (e: any) => {
+    const formValue = e.target[0].value;
+    const newUser = {
+      userId: Date.now().toLocaleString().concat(formValue),
+      userName: formValue,
+    };
+    sessionStorage.setItem('user', JSON.stringify(newUser));
+    setUser(newUser);
+  };
+
+  const sendMessage = (e: any) => {
+    if (user) {
+      socket.emit('chat', {
+        user: {
+          userId: user.userId,
+          userName: user.userName,
+        },
+        timeSent: new Date(Date.now()).toLocaleString('en-US'),
+        message: e.target[0].value,
+      });
+    }
+  };
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.tsx</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
+    <>
+      {user && user.userId ? (
+        <ChatLayout>
+          <Header user={user} isConnected={isConnected}></Header>
+          <Messages user={user} messages={messages}></Messages>
+          <MessageForm sendMessage={sendMessage}></MessageForm>
+        </ChatLayout>
+      ) : (
+        <LoginLayout>
+          <LoginForm login={login}></LoginForm>
+        </LoginLayout>
+      )}
+    </>
   );
 }
 
